@@ -3,8 +3,6 @@
 //  TheAppleFreak <https://github.com/TheAppleFreak>
 //  Willy Liu <https://github.com/willwull>
 
-import { Options as RequestOptions } from 'request';
-
 import {
   Comment as _Comment,
   Listing as _Listing,
@@ -57,7 +55,7 @@ declare class Snoowrap {
   createLivethread(options: LiveThreadSettings): Promise<_LiveThread>;
   createMultireddit(options: MultiRedditProperties & { name: string; subreddits: _Subreddit[] | string[]}): Promise<_MultiReddit>;
   createSubreddit(options: SubredditSettings): Promise<_Subreddit>;
-  credentialedClientRequest(options?: RequestOptions): Promise<any>;
+  credentialedClientRequest(options?: Snoowrap.RequestOptions): Promise<any>;
   getBlockedUsers(): Promise<_RedditUser[]>;
   getCaptchaImage(identifier: string): Promise<string>;
   getComment(commentId: string): _Comment;
@@ -107,8 +105,8 @@ declare class Snoowrap {
   markAsVisited(links: _Submission[]): Promise<void>;
   markMessagesAsRead(messages: _PrivateMessage[] | string[]): Promise<void>;
   markMessagesAsUnread(messages: _PrivateMessage[] | string[]): Promise<void>;
-  oauthRequest(options: RequestOptions): Promise<any>;
-  rawRequest(options: RequestOptions): Promise<any>;
+  oauthRequest(options: Snoowrap.RequestOptions): Promise<any>;
+  rawRequest(options: Snoowrap.RequestOptions): Promise<any>;
   readAllMessages(): Promise<void>;
   revokeRefreshToken(): Promise<void>;
   search(options: Snoowrap.SearchOptions): Promise<_Listing<_Submission>>;
@@ -117,7 +115,7 @@ declare class Snoowrap {
   searchSubredditTopics(options: { query: string; }): Promise<_Subreddit[]>;
   submitLink(options: Snoowrap.SubmitLinkOptions): Promise<_Submission>;
   submitSelfpost(options: Snoowrap.SubmitSelfPostOptions): Promise<_Submission>;
-  unauthenticatedRequest(options: RequestOptions): Promise<any>; // options: https://www.npmjs.com/package/request
+  unauthenticatedRequest(options: Snoowrap.RequestOptions): Promise<any>;
   updateAccessToken(): Promise<string>;
   updatePreferences(updatedPreferences: any): Promise<void>;
 }
@@ -131,6 +129,23 @@ declare namespace Snoowrap {
     password?: string;
     refreshToken?: string;
     accessToken?: string;
+  }
+
+  export interface RequestOptions {
+    json?: boolean;
+    baseUrl?: string;
+    uri?: string;
+    url?: string;
+    method?: string;
+    headers?: Record<string, string>;
+    qs?: Record<string, string | number | boolean | undefined>;
+    form?: Record<string, string>;
+    formData?: Record<string, any>;
+    body?: any;
+    auth?: { bearer?: string; user?: string; pass?: string };
+    resolveWithFullResponse?: boolean;
+    timeout?: number;
+    transform?: (body: any, response: any) => any;
   }
 
   export interface ConfigOptions {

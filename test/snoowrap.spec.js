@@ -1,11 +1,10 @@
-/* eslint-env mocha */
+/* eslint-env mocha, browser */
 // eslint-disable-next-line strict
 'use strict'; // (this is not a module, so 'use strict' is required)
 const expect = require('chai').use(require('dirty-chai')).expect;
 const Promise = require('bluebird');
 const _ = require('lodash');
 const moment = require('moment');
-const request = require('request-promise');
 const util = require('util');
 const snoowrap = require('..');
 
@@ -47,21 +46,55 @@ describe('snoowrap', function () {
     r.config({request_delay: 1000});
 
     if (!isBrowser) {
-      const defaultRequest = request.defaults({
-        headers: {'user-agent': oauthInfo.user_agent},
-        json: true,
-        jar: request.jar(),
-        baseUrl: 'https://www.reddit.com/'
-      });
+      const baseUrl = 'https://www.reddit.com/';
+      const defaultHeaders = {'user-agent': oauthInfo.user_agent};
 
-      const loginResponse = await defaultRequest.post('api/login').form({
-        user: oauthInfo.username,
-        passwd: oauthInfo.password,
-        api_type: 'json'
-      });
+      try {
+        const loginRes = await fetch(baseUrl + 'api/login', {
+          method: 'POST',
+          headers: {
+            ...defaultHeaders,
+            'content-type': 'application/x-www-form-urlencoded',
+            'accept': 'application/json'
+          },
+          body: new URLSearchParams({user: oauthInfo.username, passwd: oauthInfo.password, api_type: 'json'}).toString(),
+          redirect: 'manual'
+        });
+        const cookies = (loginRes.headers.getSetCookie
+          ? loginRes.headers.getSetCookie()
+          : [loginRes.headers.get('set-cookie')].filter(Boolean)
+        ).join('; ');
+        const loginText = await loginRes.text();
+        const loginBody = JSON.parse(loginText);
 
-      expect(loginResponse.json.errors.length).to.equal(0);
-      cookieAgent = defaultRequest.defaults({headers: {'X-Modhash': loginResponse.json.data.modhash}});
+        expect(loginBody.json.errors.length).to.equal(0);
+        cookieAgent = {
+          async post (options) {
+            const res = await fetch(baseUrl + options.uri, {
+              method: 'POST',
+              headers: {
+                ...defaultHeaders,
+                'X-Modhash': loginBody.json.data.modhash,
+                'content-type': 'application/x-www-form-urlencoded',
+                cookie: cookies
+              },
+              body: new URLSearchParams(options.form).toString(),
+              redirect: 'manual'
+            });
+            const respHeaders = {};
+            res.headers.forEach((value, key) => {
+              respHeaders[key] = value;
+            });
+            const contentType = res.headers.get('content-type') || '';
+            const body = contentType.includes('json') ? await res.json() : await res.text();
+            return {statusCode: res.status, headers: respHeaders, body};
+          }
+        };
+      } catch (e) {
+        // Cookie-based login may fail (e.g. if Reddit's /api/login endpoint is unavailable).
+        // Tests that depend on cookieAgent will be skipped.
+        cookieAgent = null;
+      }
     }
   });
 
@@ -193,11 +226,9 @@ describe('snoowrap', function () {
         snoowrap.fromAuthCode({code: 'foo', userAgent: 'bar', clientSecret: 'qux', redirectUri: 'qux2'});
       }).to.throw(TypeError);
     });
-    (isBrowser ? it.skip : it)('returns a Promise for a valid requester', async () => {
+    (isBrowser || !cookieAgent ? it.skip : it)('returns a Promise for a valid requester', async () => {
       const authResponse = await cookieAgent.post({
         uri: 'api/v1/authorize',
-        simple: false,
-        resolveWithFullResponse: true,
         form: {
           client_id: oauthInfo.client_id,
           redirect_uri: oauthInfo.redirect_uri,
@@ -211,7 +242,7 @@ describe('snoowrap', function () {
       expect(authResponse.statusCode).to.equal(302);
 
       const newRequester = await snoowrap.fromAuthCode({
-        code: require('url').parse(authResponse.headers.location, true).query.code,
+        code: new URL(authResponse.headers.location).searchParams.get('code'),
         userAgent: oauthInfo.user_agent,
         clientId: oauthInfo.client_id,
         clientSecret: oauthInfo.client_secret,

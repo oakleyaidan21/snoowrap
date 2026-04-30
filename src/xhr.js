@@ -1,93 +1,142 @@
 /* eslint-env browser */
 import Promise from './Promise.js';
-import url from 'url';
-import {stringify as createQueryString} from 'querystring';
 import {RequestError, StatusCodeError} from './errors.js';
 
-// Provide a shim for some of the functionality of the `request-promise` npm package in browsers.
-// Previously, snoowrap depended on browserify to package `request-promise` for the browser bundle, and while this worked
-// properly, it caused the snoowrap bundle to be very large since `request-promise` contains many dependencies that snoowrap
-// doesn't actually need.
-
-function noop () {}
-
-function tryParseJson (maybeJson) {
-  try {
-    return JSON.parse(maybeJson);
-  } catch (e) {
-    return maybeJson;
+function buildUrl (options) {
+  const uri = options.url || options.uri || '';
+  let fullUrl;
+  if (/^https?:\/\//.test(uri)) {
+    fullUrl = new URL(uri);
+  } else {
+    const base = options.baseUrl || '';
+    fullUrl = new URL(uri, base.endsWith('/') ? base : base + '/');
   }
+  if (options.qs) {
+    Object.keys(options.qs).forEach(key => {
+      if (options.qs[key] !== undefined && options.qs[key] !== null) {
+        fullUrl.searchParams.set(key, String(options.qs[key]));
+      }
+    });
+  }
+  return fullUrl;
 }
 
-function parseHeaders (headerString) {
-  return headerString.split('\r\n').filter(line => line).reduce((accumulator, line) => {
-    const index = line.indexOf(': ');
-    accumulator[line.slice(0, index)] = line.slice(index + 2);
-    return accumulator;
-  }, {});
+function buildAuthHeader (auth) {
+  if (auth.bearer) {
+    return `bearer ${auth.bearer}`;
+  }
+  if (auth.user !== undefined) {
+    const credentials = typeof btoa === 'function'
+      ? btoa(`${auth.user}:${auth.pass}`)
+      : Buffer.from(`${auth.user}:${auth.pass}`).toString('base64');
+    return `basic ${credentials}`;
+  }
+  return undefined;
+}
+
+function buildBody (options, headers) {
+  if (options.formData) {
+    const formData = typeof FormData !== 'undefined' ? new FormData() : new (require('form-data'))();
+    Object.keys(options.formData).forEach(key => formData.append(key, options.formData[key]));
+    if (options.form) {
+      Object.keys(options.form).forEach(key => formData.append(key, options.form[key]));
+    }
+    return formData;
+  }
+  if (options.form) {
+    headers['content-type'] = 'application/x-www-form-urlencoded';
+    return new URLSearchParams(options.form).toString();
+  }
+  if (options.body) {
+    if (options.json) {
+      headers['content-type'] = 'application/json';
+      return JSON.stringify(options.body);
+    }
+    return options.body;
+  }
+  return undefined;
+}
+
+async function parseResponseBody (fetchResponse, isJson) {
+  if (!isJson) {
+    return fetchResponse.text();
+  }
+  const text = await fetchResponse.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return text;
+  }
 }
 
 module.exports = function rawRequest (options) {
-  // It would be nice to be able to use the `URL` API in browsers, but Safari 9 doesn't support `URLSearchParams`.
-  const parsedUrl = url.parse(options.url || url.resolve(options.baseUrl, options.uri), true);
-  parsedUrl.search = createQueryString(Object.assign({}, parsedUrl.query, options.qs));
-  // create a new url object with the new qs params, to ensure that the `href` value changes (to use later for parsing response)
-  const finalUrl = url.parse(parsedUrl.format());
-  const xhr = new XMLHttpRequest();
-  const method = options.method ? options.method.toUpperCase() : 'GET';
-  xhr.open(method, finalUrl.href);
-  Object.keys(options.headers)
-    .filter(header => header.toLowerCase() !== 'user-agent')
-    .forEach(key => xhr.setRequestHeader(key, options.headers[key]));
+  const method = (options.method || 'GET').toUpperCase();
+  const url = buildUrl(options);
+  const headers = Object.assign({}, options.headers || {});
+
   if (options.auth) {
-    xhr.setRequestHeader(
-      'Authorization',
-      options.auth.bearer ? `bearer ${options.auth.bearer}` : 'basic ' + btoa(`${options.auth.user}:${options.auth.pass}`)
-    );
+    const authValue = buildAuthHeader(options.auth);
+    if (authValue) {
+      headers.Authorization = authValue;
+    }
   }
 
-  let requestBody;
-  if (options.formData) {
-    requestBody = new FormData();
-    Object.keys(options.formData).forEach(key => requestBody.append(key, options.formData[key]));
-    if (options.form) {
-      Object.keys(options.form).forEach(key => requestBody.append(key, options.form[key]));
-    }
-    xhr.setRequestHeader('Content-Type', 'multipart/form-data');
-  } else if (options.form) {
-    requestBody = createQueryString(options.form);
-    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
-  } else if (options.json) {
-    requestBody = JSON.stringify(options.body);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-  } else {
-    requestBody = options.body;
-  }
+  const body = method !== 'GET' && method !== 'HEAD' ? buildBody(options, headers) : undefined;
+
+  const abortController = new AbortController();
 
   return new Promise((resolve, reject, onCancel) => {
-    onCancel(() => xhr.abort());
-    xhr.onload = function () {
-      const success = this.status >= 200 && this.status < 300;
-      const settleFunc = success ? resolve : err => reject(Object.assign(new StatusCodeError(this.status + ''), err));
-      const response = {
-        statusCode: this.status,
-        body: (options.json ? tryParseJson : noop)(xhr.response),
-        headers: parseHeaders(xhr.getAllResponseHeaders()),
-        request: {method, uri: finalUrl}
-      };
-      if (typeof options.transform === 'function') {
-        settleFunc(options.transform(response.body, response));
-      } else if (!success || options.resolveWithFullResponse) {
-        settleFunc(response);
-      } else {
-        settleFunc(response.body);
-      }
-    };
-    xhr.onerror = err => reject(Object.assign(new RequestError(), err));
-    xhr.send(requestBody);
+    onCancel(() => abortController.abort());
+
+    fetch(url.href, {method, headers, body, signal: abortController.signal, redirect: 'follow'})
+      .then(fetchResponse => {
+        return parseResponseBody(fetchResponse, options.json).then(responseBody => {
+          const responseHeaders = {};
+          fetchResponse.headers.forEach((value, key) => {
+            responseHeaders[key] = value;
+          });
+
+          const response = {
+            statusCode: fetchResponse.status,
+            body: responseBody,
+            headers: responseHeaders,
+            request: {method, uri: url}
+          };
+
+          const success = fetchResponse.ok;
+
+          if (typeof options.transform === 'function') {
+            const transformed = options.transform(response.body, response);
+            if (!success) {
+              const error = new StatusCodeError(`${fetchResponse.status}`);
+              error.statusCode = fetchResponse.status;
+              error.response = response;
+              reject(error);
+            } else {
+              resolve(transformed);
+            }
+          } else if (!success) {
+            const error = new StatusCodeError(`${fetchResponse.status}`);
+            error.statusCode = fetchResponse.status;
+            error.response = response;
+            reject(error);
+          } else if (options.resolveWithFullResponse) {
+            resolve(response);
+          } else {
+            resolve(response.body);
+          }
+        });
+      })
+      .catch(err => {
+        if (err instanceof StatusCodeError) {
+          reject(err);
+        } else {
+          reject(new RequestError(err.message || 'Network request failed'));
+        }
+      });
   }).timeout(options.timeout || Math.pow(2, 31) - 1, 'Error: ETIMEDOUT')
     .catch(Promise.TimeoutError, err => {
-      xhr.abort();
+      abortController.abort();
       throw err;
     });
 };
