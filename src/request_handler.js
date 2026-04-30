@@ -13,8 +13,7 @@ easier to just use snoowrap's [upvote function]{@link VoteableContent#upvote}.
 * If you're using this function to access an API feature/endpoint that is unsupported by snoowrap, please consider [creating an
 issue for it](https://github.com/not-an-aardvark/snoowrap/issues) so that the functionality can be added to snoowrap more
 directly.
-* @param {object} options Options for the request. For documentation on these options, see the
-[Request API](https://www.npmjs.com/package/request). Supported options include `uri`, `qs`, `form`, `headers`, `method`,
+* @param {object} options Options for the request. Supported options include `uri`, `qs`, `form`, `headers`, `method`,
 `auth`, and `body`. A default `baseUrl` parameter of `this.config().endpoint_domain` is internally included by default, so it
 is recommended that a `uri` parameter be used, rather than a `url` parameter with a
 domain name.
@@ -138,8 +137,7 @@ content from reddit. To do that, use {@link snoowrap#oauthRequest} or another of
 *
 * This function can work with alternate `this`-bindings, provided that the binding has the `clientId`, `clientSecret`, and
 `userAgent` properties. This allows it be used if no snoowrap requester has been created yet.
-* @param {object|string} options Options for the request; these are passed directly to the
-[Request API](https://www.npmjs.com/package/request).
+* @param {object|string} options Options for the request
 * @returns {Promise} The response from the reddit server
 * @example
 *
@@ -171,8 +169,7 @@ export function credentialedClientRequest (options) {
 
 /**
 * @summary Sends a request to the reddit server without authentication.
-* @param {object|string} options Options for the request; these are passed directly to the
-[Request API](https://www.npmjs.com/package/request).
+* @param {object|string} options Options for the request
 * @returns {Promise} The response from the reddit server
 * @memberof snoowrap
 * @instance
@@ -232,10 +229,8 @@ export function updateAccessToken () {
 * this method, all requests from snoowrap will pass through it.
 *
 * To ensure that all other snoowrap methods work correctly, the API for a shadowed version of this method must match the API for
-* the original `makeRequest` method. This method is based on the API of the
-* [request-promise](https://www.npmjs.com/package/request-promise) library, so if you do create a subclass, it might be helpful
-* to use `request-promise` internally. This will ensure that the API works correctly, so that you don't have to reimplement this
-* function's API from scratch.
+* the original `rawRequest` method. Internally, snoowrap uses the standard `fetch` API. If you create a subclass, your
+* implementation must accept the same options object and return a Promise with the same response shape.
 *
 * @param {object} options Options for the request
 * @param {boolean} options.json If `true`, the `Content-Type: application/json` header is added, and the response body will be
@@ -278,15 +273,12 @@ export function updateAccessToken () {
 *   }
 * }
 *
-* const request = require('request-promise');
-*
 * class AnotherSnoowrapSubclass extends snoowrap {
 *   rawRequest(options) {
-*     // send all requests through a proxy
-*     return request(Object.assign(options, {proxy: 'https://example.com'}))
+*     // add custom behavior before delegating to the default implementation
+*     console.log(`sending ${options.method || 'GET'} to ${options.uri}`);
+*     return super.rawRequest(options);
 *   }
 * }
 */
-export const rawRequest = typeof XMLHttpRequest !== 'undefined'
-  ? require('./xhr')
-  : require('request-promise').defaults({gzip: true});
+export const rawRequest = require('./xhr');

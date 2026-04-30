@@ -45,8 +45,6 @@
     "bluebird": "^3.5.5",
     "lodash": "^4.17.15",
     "promise-chains": "^0.3.11",
-    "request": "^2.88.2",
-    "request-promise": "^4.2.6",
     "ws": "^3.3.1"
   },
   "devDependencies": {
@@ -63,7 +61,7 @@
     "@babel/plugin-transform-template-literals": "^7.0.0",
     "@babel/plugin-transform-typescript": "^7.0.0",
     "@babel/register": "^7.5.5",
-    "@types/request": "^2.48.2",
+    "@types/node": "^10.17.60",
     "@typescript-eslint/eslint-plugin": "^1.13.0",
     "@typescript-eslint/parser": "^1.13.0",
     "babelify": "^10.0.0",
@@ -83,11 +81,10 @@
     "uglify-js": "git://github.com/mishoo/UglifyJS2.git#1db50c3b169ee4195e1935013d6721628eb5b4bd"
   },
   "engines": {
-    "node": ">=4.0.0"
+    "node": ">=18.0.0"
   },
   "browser": {
     "fs": false,
-    "request-promise": false,
     "util": false,
     "ws": false
   }
